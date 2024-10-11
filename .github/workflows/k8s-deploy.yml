@@ -1,0 +1,71 @@
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches: ["development", "k8s-deploy"]
+  pull_request:
+    branches: ["development"]
+
+jobs:
+  deploy:
+    env:
+      BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+      NAMESPACE: "gn-demo-${{ github.head_ref || github.ref_name }}"
+      KUBECONFIG: "${{ github.workspace }}/.kube/config"
+
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+      - name: Namespace safety check
+        run: '[ "${{ env.NAMESPACE }}" = "gn-demo-development" ] || [ "${{ env.NAMESPACE }}" = "gn-demo-stable" ]'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # - name: Build and push Docker image
+      #   id: push
+      #   uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+      #   with:
+      #     context: .
+      #     file: ./Dockerfile
+      #     push: true
+      #     tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}
+
+      - name: "Write to $KUBECONFIG"
+        run: |
+          mkdir -p '${{ github.workspace }}/.kube' \
+            && umask 177 \
+            && echo '${{ secrets.K8S_CONFIG }}' > "$KUBECONFIG"
+
+      - run: |
+          kubectl version \
+          && kubectl -n ${{ env.NAMESPACE }} get pods
+
+      - name: Checkout Helm chart repo
+        uses: actions/checkout@v4
+        with:
+          repository: geosolutions-it/geonode-k8s
+          path: geonode-k8s
+
+      - name: Deploy to Kubernetes
+        working-directory: ./geonode-k8s
+        run: |
+          ls -al \
+          && helm version \
+          && helm list -n ${{ env.NAMESPACE }} \
+          && echo TODO
